@@ -3,159 +3,754 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CAMC Charge Master Dashboard</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Simple React CDN -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <!-- Babel -->
+    <title>Charge Master Analytics · Dynamic Column Mapping</title>
+   
+    <!-- React & Babel -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-        body { 
-            font-family: 'Inter', sans-serif; 
-            background-color: #f8fafc;
-            margin: 0;
-            padding: 0;
+   
+    <!-- Libraries: PapaParse, SheetJS, Lucide Icons -->
+    <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+   
+    <!-- Tailwind CSS with custom brand -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 800: '#075985', 900: '#0c4a6e' },
+                        slate: { 850: '#152033' }
+                    },
+                    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+                    animation: { 'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite' }
+                }
+            }
         }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .glass-panel { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.2); }
+        .animate-fade-in { animation: fadeIn 0.5s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .bar-fill { transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); }
     </style>
 </head>
-<body>
-    <div id="root" style="height: 100vh;"></div>
+<body class="text-slate-800 h-screen overflow-hidden flex flex-col">
+
+    <div id="root" class="h-full flex flex-col"></div>
 
     <script type="text/babel">
-        // Simple data
-        const chargeData = [
-            { cpt: "76377", procedure: "3D Rendering w/Interpret", price: 8133 },
-            { cpt: "49083", procedure: "Abdominal Paracentesis", price: 7792 },
-            { cpt: "93598", procedure: "Cardiac Output Measurement", price: 96 },
-            { cpt: "34808", procedure: "Iliac Artery Occlusion Device", price: 14551 },
-            { cpt: "34717", procedure: "Endovascular Repair Iliac Artery", price: 16535 },
-            { cpt: "77002", procedure: "Fluoroscopic Guidance", price: 7611 },
-            { cpt: "35572", procedure: "Harvest Femoropopliteal Vein", price: 17026 },
-            { cpt: "93563", procedure: "Selective Coronary Angiography", price: 7979 },
-            { cpt: "37220", procedure: "Percutaneous Transluminal Revascularization", price: 13744 },
-            { cpt: "0234T", procedure: "Atherectomy Supra-Inguinal Vessel", price: 14000 },
-            { cpt: "35501", procedure: "Bypass Graft Initial Vein", price: 25000 },
-            { cpt: "93454", procedure: "Coronary Angiography", price: 12500 },
-            { cpt: "93318", procedure: "Transesophageal Echo", price: 4500 },
-            { cpt: "37252", procedure: "IVUS Initial Vessel", price: 6800 },
-            { cpt: "93922", procedure: "Lower Extremity Ultrasound", price: 1200 },
-            { cpt: "70551", procedure: "MRI Brain w/o Contrast", price: 3200 },
-            { cpt: "71260", procedure: "CT Chest w/ Contrast", price: 4100 }
-        ];
+        const { useState, useEffect, useMemo, useRef } = React;
 
-        function App() {
-            const [search, setSearch] = React.useState("");
+        // -------------------- SMART ICON COMPONENT (no duplication) --------------------
+        const Icon = ({ name, size = 18, className = "" }) => {
+            const iconRef = useRef(null);
+            useEffect(() => {
+                if (window.lucide) {
+                    // Create icon only once per element
+                    window.lucide.createIcons({
+                        root: iconRef.current?.parentNode || document,
+                        nameAttr: 'data-lucide',
+                        attrs: { class: `lucide lucide-${name} ${className}`, width: size, height: size }
+                    });
+                }
+            }, [name, className, size]);
+            return <i ref={iconRef} data-lucide={name} className={className}></i>;
+        };
 
-            // Filter data
-            const filteredData = chargeData.filter(item => 
-                item.procedure.toLowerCase().includes(search.toLowerCase()) ||
-                item.cpt.includes(search)
-            );
-
-            // Format currency
-            const formatMoney = (num) => {
-                return '$' + num.toLocaleString('en-US');
-            };
-
-            // Calculate stats
-            const total = filteredData.reduce((sum, i) => sum + i.price, 0);
-            const avg = filteredData.length ? total / filteredData.length : 0;
-            const max = filteredData.length ? Math.max(...filteredData.map(i => i.price)) : 0;
-
+        // -------------------- MODAL (unchanged but robust) --------------------
+        const Modal = ({ isOpen, onClose, title, children }) => {
+            if (!isOpen) return null;
             return (
-                <div className="p-6 max-w-7xl mx-auto">
-                    {/* Header */}
-                    <div className="bg-blue-900 text-white rounded-2xl p-8 mb-8 shadow-xl">
-                        <div className="flex justify-between items-center">
-                            <div>
-                                <h1 className="text-3xl font-bold">CAMC Charge Master</h1>
-                                <p className="text-blue-200 mt-2">Cardiology & Radiology Standard Charges</p>
-                            </div>
-                            <input 
-                                className="px-4 py-3 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/50 w-64"
-                                placeholder="Search procedures..."
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                            />
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+                        <div className="flex justify-between items-center p-6 border-b border-slate-100">
+                            <h3 className="text-xl font-bold text-slate-800">{title}</h3>
+                            <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                                <Icon name="x" size={20} className="text-slate-500" />
+                            </button>
                         </div>
-                    </div>
-
-                    {/* Stats Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                        <div className="bg-white rounded-xl p-6 shadow-md border border-gray-100">
-                            <p className="text-gray-500 text-sm uppercase">Procedures</p>
-                            <p className="text-3xl font-bold text-blue-600 mt-2">{filteredData.length}</p>
-                        </div>
-                        <div className="bg-white rounded-xl p-6 shadow-md border border-gray-100">
-                            <p className="text-gray-500 text-sm uppercase">Average Price</p>
-                            <p className="text-3xl font-bold text-green-600 mt-2">{formatMoney(avg)}</p>
-                        </div>
-                        <div className="bg-white rounded-xl p-6 shadow-md border border-gray-100">
-                            <p className="text-gray-500 text-sm uppercase">Highest Price</p>
-                            <p className="text-3xl font-bold text-red-600 mt-2">{formatMoney(max)}</p>
-                        </div>
-                    </div>
-
-                    {/* Simple Chart - Using div bars instead of Recharts */}
-                    <div className="bg-white rounded-xl p-6 shadow-md border border-gray-100 mb-8">
-                        <h2 className="text-xl font-bold text-gray-800 mb-6">Top 10 Procedures</h2>
-                        <div className="space-y-4">
-                            {filteredData.sort((a,b) => b.price - a.price).slice(0, 10).map((item, i) => {
-                                const maxPrice = Math.max(...filteredData.map(p => p.price));
-                                const width = (item.price / maxPrice) * 100;
-                                return (
-                                    <div key={i} className="space-y-1">
-                                        <div className="flex justify-between text-sm">
-                                            <span className="font-mono text-blue-600">{item.cpt}</span>
-                                            <span className="font-semibold">{formatMoney(item.price)}</span>
-                                        </div>
-                                        <div className="text-xs text-gray-600 mb-1">{item.procedure}</div>
-                                        <div className="w-full bg-gray-100 rounded-full h-3">
-                                            <div 
-                                                className="bg-blue-600 h-3 rounded-full" 
-                                                style={{ width: width + '%' }}
-                                            ></div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    {/* Table */}
-                    <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
-                        <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
-                            <h2 className="text-lg font-bold text-gray-800">Procedure Details</h2>
-                        </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">CPT</th>
-                                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Procedure</th>
-                                        <th className="px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Price</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-200">
-                                    {filteredData.map((item, i) => (
-                                        <tr key={i} className="hover:bg-gray-50">
-                                            <td className="px-6 py-4 font-mono text-sm text-blue-600 font-semibold">{item.cpt}</td>
-                                            <td className="px-6 py-4 text-sm text-gray-800">{item.procedure}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-right">{formatMoney(item.price)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                        <div className="p-6 overflow-y-auto bg-slate-50">
+                            {children}
                         </div>
                     </div>
                 </div>
             );
-        }
+        };
 
-        // Render
+        // -------------------- EMPTY STATE (with file input reset) --------------------
+        const EmptyState = ({ onFileUpload, error, isProcessing, resetKey }) => (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 bg-slate-50 relative overflow-hidden">
+                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5"></div>
+               
+                <div className="z-10 bg-white p-10 rounded-2xl shadow-xl border border-slate-200 text-center max-w-lg w-full">
+                    <div className="w-20 h-20 bg-brand-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                        {isProcessing ? (
+                            <Icon name="loader-2" size={40} className="text-brand-600 animate-spin" />
+                        ) : (
+                            <Icon name="upload-cloud" size={40} className="text-brand-600" />
+                        )}
+                    </div>
+                    <h1 className="text-3xl font-bold text-slate-800 mb-2">Upload Charge Master</h1>
+                    <p className="text-slate-500 mb-8">
+                        Drag & drop <strong>.xlsx</strong> or <strong>.csv</strong> — columns auto‑detected.
+                    </p>
+                   
+                    <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-brand-200 border-dashed rounded-lg cursor-pointer bg-brand-50 hover:bg-brand-100 transition-colors group ${isProcessing ? 'pointer-events-none opacity-50' : ''}`}>
+                        <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                            <p className="mb-2 text-sm text-brand-700 font-medium group-hover:text-brand-800">
+                                {isProcessing ? 'Parsing large file...' : 'Click or drag to upload'}
+                            </p>
+                            <p className="text-xs text-brand-400">Excel (XLSX) or CSV</p>
+                        </div>
+                        {/* key reset ensures same file can be re-uploaded */}
+                        <input key={resetKey} type="file" className="hidden" accept=".csv, .xlsx, .xls" onChange={onFileUpload} disabled={isProcessing} />
+                    </label>
+
+                    {error && (
+                        <div className="mt-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-center gap-2">
+                            <Icon name="alert-circle" size={16} />
+                            {error}
+                        </div>
+                    )}
+                </div>
+                <p className="mt-8 text-slate-400 text-sm">Secure local processing · column‑agnostic</p>
+            </div>
+        );
+
+        // -------------------- COLUMN DETECTION ENGINE --------------------
+        // maps internal field names to actual column headers (case-insensitive, fuzzy)
+        const detectColumns = (firstRow) => {
+            if (!firstRow) return {};
+           
+            const columns = Object.keys(firstRow);
+            const lowerCols = columns.map(c => c.toLowerCase().trim());
+
+            // patterns for each internal field (priority order)
+            const patterns = {
+                cpt: ['cpt', 'cpt code', 'cpt/hcpcs', 'hcpcs', 'procedure code', 'charge code'],
+                billItemId: ['bill item id', 'bill item', 'item id', 'charge item id', 'cdm', 'charge code', 'rev code'],
+                longDesc: ['long description', 'description', 'charge description', 'procedure description', 'service description'],
+                shortDesc: ['short description', 'abbreviated description', 'brief description', 'short name'],
+                activityType: ['activity type', 'type', 'charge type', 'service type', 'act type'],
+                activitySubType: ['activity sub type', 'sub type', 'subtype', 'activity subtype'],
+                revCode: ['revcode', 'rev code', 'revenue code', 'rev'],
+                cdm: ['cdm', 'charge master code', 'cdm code'],
+                chargeStandard: ['charge point standard', 'standard charge', 'charge amount', 'list price', 'gross charge', 'standard price'],
+                chargeAmbulatory: ['ambulatory charge point tech', 'ambulatory charge', 'tech charge', 'professional charge', 'ambulatory price']
+            };
+
+            const map = {};
+           
+            // helper: find best match
+            Object.entries(patterns).forEach(([field, keywords]) => {
+                for (let keyword of keywords) {
+                    // exact match on lowercased column?
+                    const exactIdx = lowerCols.indexOf(keyword);
+                    if (exactIdx !== -1) {
+                        map[field] = columns[exactIdx];
+                        break;
+                    }
+                    // partial match (contains)
+                    const partialIdx = lowerCols.findIndex(c => c.includes(keyword));
+                    if (partialIdx !== -1) {
+                        map[field] = columns[partialIdx];
+                        break;
+                    }
+                }
+            });
+
+            // fallback: if no chargeStandard found, try any column with 'charge' and 'price'
+            if (!map.chargeStandard) {
+                const chargeCol = columns.find(c =>
+                    c.toLowerCase().includes('charge') &&
+                    (c.toLowerCase().includes('standard') || c.toLowerCase().includes('price') || c.toLowerCase().includes('amount'))
+                );
+                if (chargeCol) map.chargeStandard = chargeCol;
+            }
+            if (!map.chargeAmbulatory) {
+                const ambCol = columns.find(c =>
+                    c.toLowerCase().includes('ambulatory') ||
+                    (c.toLowerCase().includes('tech') && c.toLowerCase().includes('charge'))
+                );
+                if (ambCol) map.chargeAmbulatory = ambCol;
+            }
+            // final fallback for CPT
+            if (!map.cpt) {
+                const cptCol = columns.find(c => c.toLowerCase().includes('cpt') || c.toLowerCase().includes('hcpcs'));
+                if (cptCol) map.cpt = cptCol;
+            }
+
+            return map;
+        };
+
+        // -------------------- ROW IS COMPLETELY EMPTY? --------------------
+        const isRowEmpty = (row) => {
+            return Object.values(row).every(val => val === undefined || val === null || val.toString().trim() === '');
+        };
+
+        // -------------------- KPI CARD --------------------
+        const KPICard = ({ title, value, subtext, icon, color }) => (
+            <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4 transition-all hover:shadow-md">
+                <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${color}`}>
+                    <Icon name={icon} size={24} className="text-white" />
+                </div>
+                <div>
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{title}</p>
+                    <p className="text-xl font-bold text-slate-800">{value}</p>
+                    {subtext && <p className="text-xs text-slate-400">{subtext}</p>}
+                </div>
+            </div>
+        );
+
+        // -------------------- ANALYTICS PANEL (fully dynamic) --------------------
+        const AnalyticsPanel = ({ data, columnMap }) => {
+            const stats = useMemo(() => {
+                if (!data || data.length === 0 || !columnMap) return null;
+               
+                const typeField = columnMap.activityType;
+                const chargeStdField = columnMap.chargeStandard;
+                const chargeAmbField = columnMap.chargeAmbulatory;
+               
+                const typeCounts = {};
+                let prices = [];
+               
+                // sample up to 5000 for performance
+                const limit = Math.min(data.length, 5000);
+               
+                for (let i = 0; i < limit; i++) {
+                    const row = data[i];
+                   
+                    // activity type
+                    if (typeField) {
+                        const typeVal = row[typeField] || 'Unknown';
+                        typeCounts[typeVal] = (typeCounts[typeVal] || 0) + 1;
+                    }
+                   
+                    // price extraction
+                    let rawPrice = null;
+                    if (chargeStdField && row[chargeStdField]) rawPrice = row[chargeStdField];
+                    else if (chargeAmbField && row[chargeAmbField]) rawPrice = row[chargeAmbField];
+                   
+                    if (rawPrice) {
+                        const cleanPrice = parseFloat(rawPrice.toString().replace(/[$,]/g, ''));
+                        if (!isNaN(cleanPrice) && cleanPrice > 0) {
+                            prices.push(cleanPrice);
+                        }
+                    }
+                }
+
+                const sortedTypes = typeField ? Object.entries(typeCounts).sort((a,b) => b[1] - a[1]).slice(0, 5) : [];
+                const maxCount = sortedTypes.length ? sortedTypes[0][1] : 1;
+
+                const avgPrice = prices.length ? (prices.reduce((a,b) => a + b, 0) / prices.length) : 0;
+                const minPrice = prices.length ? Math.min(...prices) : 0;
+                const maxPrice = prices.length ? Math.max(...prices) : 0;
+
+                return {
+                    sortedTypes,
+                    maxCount,
+                    avgPrice: avgPrice.toLocaleString('en-US', { style: 'currency', currency: 'USD' }),
+                    minPrice: minPrice.toLocaleString('en-US', { style: 'currency', currency: 'USD' }),
+                    maxPrice: maxPrice.toLocaleString('en-US', { style: 'currency', currency: 'USD' }),
+                    hasPrices: prices.length > 0,
+                    hasTypes: typeField && sortedTypes.length > 0
+                };
+            }, [data, columnMap]);
+
+            if (!stats) return null;
+
+            return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 animate-fade-in">
+                    {/* Activity Distribution */}
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                        <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
+                            <Icon name="bar-chart-2" size={16} className="text-brand-500" />
+                            Activity Distribution {!stats.hasTypes && <span className="text-xs font-normal text-slate-400">(column not found)</span>}
+                        </h3>
+                        {stats.hasTypes ? (
+                            <div className="space-y-3">
+                                {stats.sortedTypes.map(([type, count], idx) => (
+                                    <div key={idx}>
+                                        <div className="flex justify-between text-xs mb-1">
+                                            <span className="font-medium text-slate-600">{type}</span>
+                                            <span className="text-slate-400">{count}</span>
+                                        </div>
+                                        <div className="w-full bg-slate-100 rounded-full h-2">
+                                            <div className="bg-brand-500 h-2 rounded-full bar-fill" style={{ width: `${(count / stats.maxCount) * 100}%` }}></div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-center h-32 text-slate-400 text-sm italic">
+                                No activity type column detected
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Price Analysis */}
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                        <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
+                            <Icon name="dollar-sign" size={16} className="text-emerald-500" />
+                            Charge Analysis
+                        </h3>
+                        {stats.hasPrices ? (
+                            <div className="grid grid-cols-3 gap-4">
+                                <div className="p-3 bg-slate-50 rounded-lg text-center">
+                                    <p className="text-xs text-slate-500 uppercase">Average</p>
+                                    <p className="text-sm font-bold text-slate-800 mt-1">{stats.avgPrice}</p>
+                                </div>
+                                <div className="p-3 bg-emerald-50 rounded-lg text-center">
+                                    <p className="text-xs text-emerald-600 uppercase">Lowest</p>
+                                    <p className="text-sm font-bold text-emerald-800 mt-1">{stats.minPrice}</p>
+                                </div>
+                                <div className="p-3 bg-blue-50 rounded-lg text-center">
+                                    <p className="text-xs text-blue-600 uppercase">Highest</p>
+                                    <p className="text-sm font-bold text-blue-800 mt-1">{stats.maxPrice}</p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex-1 flex items-center justify-center text-slate-400 text-sm italic">
+                                No charge column detected or values missing
+                            </div>
+                        )}
+                        <div className="mt-4 pt-4 border-t border-slate-100 text-xs text-slate-400">
+                            Based on first 5,000 rows
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // -------------------- DETAIL ROW (modal) --------------------
+        const DetailRow = ({ label, value }) => {
+            if (value === undefined || value === null || value === '') return null;
+            return (
+                <div className="flex flex-col py-3 border-b border-slate-100 last:border-0">
+                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">{label}</span>
+                    <span className="text-sm font-medium text-slate-800 break-words">{value.toString()}</span>
+                </div>
+            );
+        };
+
+        // -------------------- MAIN APP --------------------
+        const App = () => {
+            const [data, setData] = useState([]);
+            const [filteredData, setFilteredData] = useState([]);
+            const [columnMap, setColumnMap] = useState({});
+            const [loading, setLoading] = useState(false);
+            const [searchTerm, setSearchTerm] = useState("");
+            const [error, setError] = useState(null);
+            const [selectedRow, setSelectedRow] = useState(null);
+            const [fileName, setFileName] = useState("");
+            const [resetKey, setResetKey] = useState(0); // for file input reset
+           
+            // Pagination
+            const [visibleCount, setVisibleCount] = useState(100);
+
+            // -------------------- PROCESS UPLOADED DATA --------------------
+            const processData = (rawData) => {
+                try {
+                    // 1. filter out completely empty rows
+                    const nonEmptyRows = rawData.filter(row => !isRowEmpty(row));
+                   
+                    if (nonEmptyRows.length === 0) {
+                        setError("File contains no valid data rows.");
+                        setLoading(false);
+                        return;
+                    }
+
+                    // 2. detect column mapping from first row
+                    const map = detectColumns(nonEmptyRows[0]);
+                    setColumnMap(map);
+
+                    // 3. store all data (no filtering by specific columns anymore)
+                    setData(nonEmptyRows);
+                    setFilteredData(nonEmptyRows);
+                   
+                    // 4. optional: set column list for debug
+                    // setColumns(Object.keys(nonEmptyRows[0]));
+                   
+                    setError(null);
+                } catch (err) {
+                    setError("Error processing file: " + err.message);
+                }
+                setLoading(false);
+            };
+
+            // -------------------- FILE HANDLER --------------------
+            const handleFileUpload = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                setLoading(true);
+                setFileName(file.name);
+                setError(null);
+                setData([]);
+                setFilteredData([]);
+                setColumnMap({});
+                setSearchTerm("");
+                setVisibleCount(100);
+
+                const fileExt = file.name.split('.').pop().toLowerCase();
+
+                // allow UI to update
+                setTimeout(() => {
+                    if (fileExt === 'csv') {
+                        Papa.parse(file, {
+                            header: true,
+                            skipEmptyLines: 'greedy',
+                            complete: (results) => processData(results.data),
+                            error: (err) => { setError("CSV parse error: " + err.message); setLoading(false); }
+                        });
+                    } else if (fileExt === 'xlsx' || fileExt === 'xls') {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            try {
+                                const data = new Uint8Array(e.target.result);
+                                const workbook = XLSX.read(data, { type: 'array' });
+                                const firstSheet = workbook.SheetNames[0];
+                                const worksheet = workbook.Sheets[firstSheet];
+                                const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "", blankrows: false });
+                                processData(jsonData);
+                            } catch (err) {
+                                setError("Excel parse error: " + err.message);
+                                setLoading(false);
+                            }
+                        };
+                        reader.readAsArrayBuffer(file);
+                    } else {
+                        setError("Unsupported format. Use .csv or .xlsx");
+                        setLoading(false);
+                    }
+                }, 80);
+            };
+
+            // -------------------- SMART FILTERING (uses dynamic columnMap) --------------------
+            useEffect(() => {
+                setVisibleCount(100);
+               
+                if (!searchTerm.trim() || !columnMap) {
+                    setFilteredData(data);
+                    return;
+                }
+
+                const lowerTerm = searchTerm.toLowerCase();
+               
+                const fieldsToSearch = [
+                    columnMap.cpt,
+                    columnMap.billItemId,
+                    columnMap.longDesc,
+                    columnMap.shortDesc,
+                    columnMap.activityType
+                ].filter(Boolean); // remove undefined
+
+                const filtered = data.filter(row => {
+                    // search in each mapped field
+                    for (let field of fieldsToSearch) {
+                        const val = row[field];
+                        if (val && val.toString().toLowerCase().includes(lowerTerm)) {
+                            return true;
+                        }
+                    }
+                    // fallback: search in all columns (if no mapping)
+                    if (fieldsToSearch.length === 0) {
+                        return Object.values(row).some(v =>
+                            v && v.toString().toLowerCase().includes(lowerTerm)
+                        );
+                    }
+                    return false;
+                });
+               
+                setFilteredData(filtered);
+            }, [searchTerm, data, columnMap]);
+
+            // -------------------- METRICS (with large dataset sampling) --------------------
+            const metrics = useMemo(() => {
+                const target = filteredData;
+                if (!target.length) return { total: 0, distinctCPT: 0, distinctTypes: 0, sampled: false };
+
+                const cptField = columnMap.cpt;
+                const typeField = columnMap.activityType;
+               
+                const cpts = new Set();
+                const types = new Set();
+               
+                // sample first 10k rows for performance on huge files
+                const sampleLimit = Math.min(target.length, 10000);
+                const sampled = target.length > 10000;
+               
+                for (let i = 0; i < sampleLimit; i++) {
+                    if (cptField && target[i][cptField]) cpts.add(target[i][cptField]);
+                    if (typeField && target[i][typeField]) types.add(target[i][typeField]);
+                }
+
+                return {
+                    total: target.length,
+                    distinctCPT: cpts.size,
+                    distinctTypes: types.size,
+                    sampled
+                };
+            }, [filteredData, columnMap]);
+
+            // -------------------- LOAD MORE --------------------
+            const handleLoadMore = () => setVisibleCount(prev => prev + 100);
+           
+            // -------------------- RESET TO UPLOAD --------------------
+            const handleLoadNewFile = () => {
+                setData([]);
+                setFilteredData([]);
+                setColumnMap({});
+                setSearchTerm("");
+                setError(null);
+                setFileName("");
+                setResetKey(prev => prev + 1);  // force new file input
+            };
+
+            // --- if no data, show empty state ---
+            if (!data.length) {
+                return <EmptyState onFileUpload={handleFileUpload} error={error} isProcessing={loading} resetKey={resetKey} />;
+            }
+
+            // --- DYNAMIC COLUMN HEADER LABELS (display friendly) ---
+            const displayLabels = {
+                cpt: columnMap.cpt || 'CPT',
+                billItemId: columnMap.billItemId || 'Bill ID',
+                longDesc: columnMap.longDesc || 'Description',
+                activityType: columnMap.activityType || 'Type',
+                charge: columnMap.chargeStandard || columnMap.chargeAmbulatory || 'Charge'
+            };
+
+            // -------------------- RENDER DASHBOARD --------------------
+            return (
+                <div className="flex h-screen bg-slate-50 overflow-hidden">
+                   
+                    {/* Sidebar */}
+                    <div className="w-64 bg-slate-900 text-white flex flex-col flex-shrink-0 shadow-2xl">
+                        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
+                            <div className="bg-brand-500 p-2 rounded-lg">
+                                <Icon name="activity" size={20} className="text-white" />
+                            </div>
+                            <div>
+                                <h1 className="font-bold text-lg leading-tight">RevCycle<span className="text-brand-400">Pro</span></h1>
+                                <p className="text-xs text-slate-400">Adaptive Analytics</p>
+                            </div>
+                        </div>
+
+                        <div className="p-4 flex-1 overflow-y-auto">
+                            <div className="mb-8">
+                                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Current Dataset</p>
+                                <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 text-sm flex items-start gap-2">
+                                    <Icon name="file-text" size={16} className="text-slate-400 mt-1 flex-shrink-0" />
+                                    <span className="break-all text-slate-300">{fileName}</span>
+                                </div>
+                                {metrics.sampled && (
+                                    <div className="mt-2 text-xs text-amber-400 flex items-center gap-1">
+                                        <Icon name="info" size={14} /> Metrics sampled (10k rows)
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="space-y-2">
+                                <button onClick={handleLoadNewFile} className="w-full flex items-center gap-3 p-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition-colors">
+                                    <Icon name="upload" size={18} />
+                                    <span>Load New File</span>
+                                </button>
+                                <button className="w-full flex items-center gap-3 p-3 rounded-lg bg-brand-600 text-white shadow-lg shadow-brand-900/50">
+                                    <Icon name="layout-dashboard" size={18} />
+                                    <span>Dashboard</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div className="p-4 border-t border-slate-800 text-xs text-slate-500 text-center">
+                            v4.0 · Auto‑column mapping
+                        </div>
+                    </div>
+
+                    {/* Main Content */}
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                       
+                        {/* Header */}
+                        <div className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm z-10">
+                            <h2 className="text-xl font-bold text-slate-800">Charge Master Overview</h2>
+                            <div className="flex items-center gap-4">
+                                <div className="relative">
+                                    <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                    <input
+                                        type="text"
+                                        placeholder="Search CPT, ID, description..."
+                                        className="pl-10 pr-4 py-2 w-80 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-brand-500 focus:bg-white transition-all outline-none"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                                <div className="w-px h-8 bg-slate-200 mx-2"></div>
+                                <div className="flex items-center gap-2">
+                                    <span className="w-8 h-8 bg-brand-100 text-brand-700 rounded-full flex items-center justify-center font-bold text-xs">U</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* KPI Cards */}
+                        <div className="px-8 pt-8 pb-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <KPICard
+                                title="Filtered Items"
+                                value={metrics.total.toLocaleString()}
+                                subtext={data.length !== filteredData.length ? `of ${data.length} total` : "all records"}
+                                icon="database"
+                                color="bg-blue-500"
+                            />
+                            <KPICard
+                                title="Unique CPT Codes"
+                                value={metrics.distinctCPT.toLocaleString()}
+                                subtext={columnMap.cpt ? '' : 'CPT col not found'}
+                                icon="hash"
+                                color="bg-emerald-500"
+                            />
+                             <KPICard
+                                title="Activity Types"
+                                value={metrics.distinctTypes.toLocaleString()}
+                                subtext={columnMap.activityType ? '' : 'type col not found'}
+                                icon="layers"
+                                color="bg-violet-500"
+                            />
+                        </div>
+
+                        {/* Scrollable Content */}
+                        <div className="flex-1 px-8 pb-8 overflow-y-auto overflow-x-hidden">
+                           
+                            {/* Analytics Panel with dynamic columnMap */}
+                            <AnalyticsPanel data={filteredData} columnMap={columnMap} />
+
+                            {/* Data Grid */}
+                            <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden min-h-[400px]">
+                                {/* Grid Header - dynamic labels */}
+                                <div className="grid grid-cols-12 gap-4 p-4 border-b border-slate-200 bg-slate-50 text-xs font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10">
+                                    <div className="col-span-1">{displayLabels.cpt}</div>
+                                    <div className="col-span-2">{displayLabels.billItemId}</div>
+                                    <div className="col-span-5">{displayLabels.longDesc}</div>
+                                    <div className="col-span-2">{displayLabels.activityType}</div>
+                                    <div className="col-span-2 text-right">{displayLabels.charge}</div>
+                                </div>
+
+                                {/* Grid Body */}
+                                <div>
+                                    {filteredData.length > 0 ? (
+                                        <>
+                                            {filteredData.slice(0, visibleCount).map((row, idx) => {
+                                                // Safely get values using mapped columns (fallback to '--')
+                                                const cptVal = columnMap.cpt ? row[columnMap.cpt] : '--';
+                                                const billVal = columnMap.billItemId ? row[columnMap.billItemId] : '--';
+                                                const longDescVal = columnMap.longDesc ? row[columnMap.longDesc] : (columnMap.shortDesc ? row[columnMap.shortDesc] : '--');
+                                                const typeVal = columnMap.activityType ? row[columnMap.activityType] : '--';
+                                                const chargeVal = columnMap.chargeStandard ? row[columnMap.chargeStandard] : (columnMap.chargeAmbulatory ? row[columnMap.chargeAmbulatory] : '-');
+                                               
+                                                return (
+                                                    <div
+                                                        key={idx}
+                                                        onClick={() => setSelectedRow(row)}
+                                                        className="grid grid-cols-12 gap-4 p-4 border-b border-slate-100 hover:bg-brand-50 cursor-pointer transition-colors items-center group"
+                                                    >
+                                                        <div className="col-span-1 font-mono text-sm text-slate-600 bg-slate-100 rounded px-2 py-1 w-fit truncate">
+                                                            {cptVal}
+                                                        </div>
+                                                        <div className="col-span-2 text-sm font-medium text-slate-700 truncate">
+                                                            {billVal}
+                                                        </div>
+                                                        <div className="col-span-5 text-sm text-slate-600 truncate font-medium group-hover:text-brand-700">
+                                                            {longDescVal}
+                                                        </div>
+                                                        <div className="col-span-2">
+                                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                                                {typeVal}
+                                                            </span>
+                                                        </div>
+                                                        <div className="col-span-2 text-right font-mono text-sm font-semibold text-slate-800 truncate">
+                                                            {chargeVal}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                           
+                                            {filteredData.length > visibleCount && (
+                                                <div className="p-4 flex justify-center bg-slate-50 border-t border-slate-200">
+                                                    <button
+                                                        onClick={handleLoadMore}
+                                                        className="px-6 py-2 bg-white border border-slate-300 shadow-sm text-slate-600 rounded-full text-sm font-medium hover:bg-slate-50 transition-colors"
+                                                    >
+                                                        Load More (+100)
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                                            <Icon name="search-x" size={48} className="mb-4 opacity-50" />
+                                            <p>No results for "{searchTerm}"</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                           
+                            <div className="p-3 text-xs text-slate-500 text-center mt-4">
+                                Charge Master · column‑adaptive engine
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Modal: show ALL fields of selected row dynamically */}
+                    <Modal
+                        isOpen={!!selectedRow}
+                        onClose={() => setSelectedRow(null)}
+                        title="Charge Detail · All Fields"
+                    >
+                        {selectedRow && (
+                            <div className="space-y-6">
+                                <div className="bg-brand-50 p-4 rounded-lg border border-brand-100">
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <h4 className="font-bold text-lg text-brand-900">
+                                                {columnMap.longDesc && selectedRow[columnMap.longDesc]
+                                                    ? selectedRow[columnMap.longDesc]
+                                                    : (columnMap.shortDesc && selectedRow[columnMap.shortDesc])
+                                                    ? selectedRow[columnMap.shortDesc]
+                                                    : 'Charge Item'}
+                                            </h4>
+                                            {columnMap.cpt && selectedRow[columnMap.cpt] && (
+                                                <p className="text-brand-600 text-sm mt-1">CPT: {selectedRow[columnMap.cpt]}</p>
+                                            )}
+                                        </div>
+                                        {columnMap.billItemId && selectedRow[columnMap.billItemId] && (
+                                            <div className="text-right">
+                                                <span className="block text-xs uppercase text-brand-400 font-bold">Bill ID</span>
+                                                <span className="text-xl font-mono font-bold text-brand-800">{selectedRow[columnMap.billItemId]}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2">
+                                    {Object.entries(selectedRow).map(([key, value]) => (
+                                        <DetailRow key={key} label={key} value={value} />
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </Modal>
+                </div>
+            );
+        };
+
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
